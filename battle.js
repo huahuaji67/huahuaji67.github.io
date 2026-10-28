@@ -9,6 +9,8 @@ window.Battle = (function () {
   const other = (side) => (side === 'player' ? 'enemy' : 'player');
   const nameOf = (side) => (side === 'player' ? '你' : (state ? state.opponent.name : '对手'));
 
+  const HAND_REFILL = 5;      /* 我方每回合把手牌补到 5 张 */
+  const HAND_REFILL_FOE = 4;  /* 敌方补到 4 张 */
   const HAND_SOFT = 10;
   const HAND_HARD = 12;
 
@@ -83,7 +85,7 @@ window.Battle = (function () {
     drawCards('player', 4);
     drawCards('enemy', 4);
     log(`🍗 ${opp.name} 在群里发了一句：下次一定。`, 'muted');
-    log('💡 敌方部署 → 我方部署 → 开战 → 下一回合。', 'muted');
+    log('💡 敌方部署 → 我方部署 → 开战 → 下一回合；每回合手牌补到 5 张。', 'muted');
 
     /* 敌方先部署，然后才轮到我方 */
     state.phase = 'enemy';
@@ -209,7 +211,7 @@ window.Battle = (function () {
           <button class="power${ready ? ' is-ready' : ''}" ${isP ? 'data-power="player"' : 'disabled'} title="${power.text}">
             <span>${power.emoji}</span><b>${power.name}</b><em>${power.cost}⚡</em>
           </button>
-          <span class="hero-count">手 ${s.hand.length} · 牌 ${s.deck.length}</span>
+          <span class="hero-count">手 ${s.hand.length} · 牌 ${s.deck.length} · 弃 ${(s.played || []).length}</span>
         </div>
       </div>`;
   }
@@ -1293,12 +1295,23 @@ window.Battle = (function () {
     state.phaseText = '敌方部署';
     s.energy = energyFor(state.turn);
     s.powerUsed = false;
-    drawCards('enemy', 1);
+    const foeNeed = Math.max(0, HAND_REFILL_FOE - s.hand.length);
+    if (foeNeed > 0) drawCards('enemy', foeNeed);
     aiDiscardToLimit();
     render();
     await sleep(460);
 
     await enemyAI();
+  }
+
+  function refillFX(n) {
+    const hand = document.querySelector('.hand');
+    if (!hand) return;
+    const el = document.createElement('b');
+    el.className = 'hand-refill';
+    el.textContent = `+${n}`;
+    hand.appendChild(el);
+    setTimeout(() => el.remove(), 1000);
   }
 
   function beginPlayerTurn() {
@@ -1308,8 +1321,19 @@ window.Battle = (function () {
     state.phase = 'player';
     state.phaseText = '我方部署';
     state.selected = null;
-    drawCards('player', 1);
     log(`—— 第 ${state.turn} 回合 ——`, 'turn');
+
+    /* 肉鸽式补给：每回合把手牌补满到 5 张，出得越多补得越多 */
+    const before = s.hand.length;
+    const need = Math.max(0, HAND_REFILL - before);
+    if (need > 0) {
+      drawCards('player', need);
+      const got = s.hand.length - before;
+      if (got > 0) {
+        log(`🃏 手牌补给 +${got}（${s.hand.length}/${HAND_REFILL}）`, 'muted');
+        refillFX(got);
+      }
+    }
     render();
   }
 

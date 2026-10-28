@@ -2061,3 +2061,18 @@ body.is-shaking #app{animation:shake .3s ease;}
   .run-pending{justify-content:center;text-align:center;}
   .rp-actions{width:100%;justify-content:center;}
 }
+
+/* 手牌补给的浮动提示 */
+.hand{position:relative;}
+.hand-refill{
+  position:absolute;right:14px;top:-6px;z-index:9;
+  font-size:13px;font-weight:800;color:#9FDCBD;
+  text-shadow:0 2px 8px rgba(0,0,0,.6);
+  animation:refillRise 1s ease-out both;
+  pointer-events:none;
+}
+@keyframes refillRise{
+  0%{opacity:0;transform:translateY(6px) scale(.9);}
+  25%{opacity:1;transform:translateY(0) scale(1);}
+  100%{opacity:0;transform:translateY(-16px) scale(1);}
+}
