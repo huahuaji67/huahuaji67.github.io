@@ -49,7 +49,16 @@ window.Store = (function () {
       p[k] = Math.max(0, Number(raw[k]) || 0);
     });
     if (raw.run && Array.isArray(raw.run.map) && raw.run.map.length === D.MAP.rows) {
-      p.run = raw.run;
+      const r = raw.run;
+      r.maxHp = Math.max(1, Number(r.maxHp) || D.RUN.startHp);
+      r.hp = Math.max(1, Math.min(Number(r.hp) || r.maxHp, r.maxHp));
+      r.bag = Array.isArray(r.bag)
+        ? r.bag.filter((id) => D.CARD_DEFS[id] && !D.CARD_DEFS[id].token).slice(0, D.RUN.bagMax)
+        : [];
+      r.pending = r.pending && r.pending.enemyId ? r.pending : null;
+      if (!Array.isArray(r.deck) || !r.deck.length) r.deck = p.deck.slice();
+      r.deck = r.deck.filter((id) => D.CARD_DEFS[id] && D.CARD_DEFS[id].faction === 'kfc' && !D.CARD_DEFS[id].token);
+      p.run = r;
     }
     return p;
   }
@@ -266,6 +275,12 @@ window.Store = (function () {
       });
       cur.forEach((a) => { a.next = Array.from(new Set(a.next)); });
     }
+    const mid = rows.slice(1, rows.length - 1).flat();
+    if (mid.length && !mid.some((n) => n.type === 'heal')) {
+      const cand = mid.filter((n) => n.type === 'battle');
+      const t = cand[Math.floor(Math.random() * cand.length)];
+      if (t) { t.type = 'heal'; t.enemyId = null; }
+    }
     return rows;
   }
 
@@ -297,9 +312,11 @@ window.Store = (function () {
 
   function startRun() {
     profile.run = {
-      hp: D.HERO_DEFS.player.hp,
-      maxHp: D.HERO_DEFS.player.hp,
+      hp: D.RUN.startHp,
+      maxHp: D.RUN.startHp,
       deck: profile.deck.slice(),
+      bag: [],
+      pending: null,
       map: generateMap(),
       row: 0,
       nodeId: 'start',
@@ -330,9 +347,31 @@ window.Store = (function () {
   function reachable() {
     const run = profile.run;
     if (!run) return [];
+    /* 战斗没打完，哪也去不了 */
+    if (run.pending) return [];
     const cur = findNode(run, run.nodeId);
     if (!cur) return [];
     return cur.next.map((id) => findNode(run, id)).filter(Boolean);
+  }
+
+  function runPending() {
+    return profile.run ? (profile.run.pending || null) : null;
+  }
+
+  function runBeginBattle(nodeId) {
+    const run = profile.run;
+    if (!run) return null;
+    const node = findNode(run, nodeId);
+    if (!node || !node.enemyId) return null;
+    run.pending = { nodeId: node.id, enemyId: node.enemyId, nodeType: node.type };
+    save();
+    return run.pending;
+  }
+
+  function runClearPending() {
+    if (!profile.run) return;
+    profile.run.pending = null;
+    save();
   }
 
   function canEnter(id) {
@@ -341,7 +380,7 @@ window.Store = (function () {
 
   function runEnter(id) {
     const run = profile.run;
-    if (!run || !canEnter(id)) return null;
+    if (!run || run.pending || !canEnter(id)) return null;
     const node = findNode(run, id);
     run.nodeId = id;
     run.row = node.row;
@@ -354,12 +393,108 @@ window.Store = (function () {
     return profile.run ? profile.run.deck.slice() : [];
   }
 
-  function runAddCard(id, alsoCollection) {
-    if (!profile.run) return null;
-    profile.run.deck.push(id);
-    const g = alsoCollection === false ? null : grantCard(id);
+  const bagMax = () => D.RUN.bagMax;
+
+  function bag() {
+    return profile.run ? profile.run.bag.slice() : [];
+  }
+
+  function bagAdd(id) {
+    const run = profile.run;
+    if (!run) return { ok: false, msg: '没有进行中的冒险' };
+    if (!D.CARD_DEFS[id] || D.CARD_DEFS[id].token) return { ok: false, msg: '这张卡不能进背包' };
+    if (run.bag.length >= D.RUN.bagMax) return { ok: false, full: true, msg: `背包满了（${D.RUN.bagMax} 张），先丢弃一张` };
+    run.bag.push(id);
     save();
-    return g;
+    return { ok: true };
+  }
+
+  function bagRemoveAt(index) {
+    const run = profile.run;
+    if (!run || index < 0 || index >= run.bag.length) return null;
+    const id = run.bag.splice(index, 1)[0];
+    save();
+    return id;
+  }
+
+  function runCopies(id) {
+    const def = D.CARD_DEFS[id];
+    if (!def) return 2;
+    if (def.once) return 1;
+    return def.rarity === 'legendary' ? 1 : 2;
+  }
+
+  function runDeckValidate(list) {
+    if (!Array.isArray(list)) return { ok: false, msg: '卡组数据异常' };
+    if (!list.length) return { ok: false, msg: '卡组不能为空' };
+    if (list.length > D.RUN.deckSize) return { ok: false, msg: `卡组最多 ${D.RUN.deckSize} 张` };
+    const onceCount = list.filter((id) => D.CARD_DEFS[id] && D.CARD_DEFS[id].once).length;
+    if (onceCount > 6) return { ok: false, msg: `一次性卡牌最多 6 张（当前 ${onceCount} 张）` };
+    const seen = {};
+    for (const id of list) {
+      const def = D.CARD_DEFS[id];
+      if (!def || def.faction !== 'kfc' || def.token) return { ok: false, msg: '卡组里有非法卡牌' };
+      seen[id] = (seen[id] || 0) + 1;
+      if (seen[id] > runCopies(id)) return { ok: false, msg: `「${def.name}」最多 ${runCopies(id)} 张` };
+    }
+    return { ok: true, msg: '' };
+  }
+
+  function bagToDeck(index) {
+    const run = profile.run;
+    if (!run) return { ok: false, msg: '没有进行中的冒险' };
+    const id = run.bag[index];
+    if (!id) return { ok: false, msg: '这张卡不在背包里' };
+    if (run.deck.length >= D.RUN.deckSize) return { ok: false, msg: `卡组已满 ${D.RUN.deckSize} 张，先把一张放回背包` };
+    const copies = run.deck.filter((x) => x === id).length;
+    if (copies >= runCopies(id)) return { ok: false, msg: `「${D.CARD_DEFS[id].name}」最多 ${runCopies(id)} 张` };
+    const onceCount = run.deck.filter((x) => D.CARD_DEFS[x] && D.CARD_DEFS[x].once).length;
+    if (D.CARD_DEFS[id].once && onceCount >= 6) return { ok: false, msg: '一次性卡牌最多 6 张' };
+    run.deck.push(id);
+    run.bag.splice(index, 1);
+    save();
+    return { ok: true, msg: `「${D.CARD_DEFS[id].name}」已加入卡组` };
+  }
+
+  function deckToBag(index) {
+    const run = profile.run;
+    if (!run) return { ok: false, msg: '没有进行中的冒险' };
+    const id = run.deck[index];
+    if (!id) return { ok: false, msg: '卡组里没有这张牌' };
+    if (run.deck.length <= 1) return { ok: false, msg: '卡组至少留 1 张' };
+    if (run.bag.length >= D.RUN.bagMax) return { ok: false, msg: '背包满了，先丢弃一张' };
+    run.deck.splice(index, 1);
+    run.bag.push(id);
+    save();
+    return { ok: true, msg: `「${D.CARD_DEFS[id].name}」已放入背包` };
+  }
+
+  function runDeckDelete(index) {
+    const run = profile.run;
+    if (!run || index < 0 || index >= run.deck.length) return null;
+    if (run.deck.length <= 1) return null;
+    const id = run.deck.splice(index, 1)[0];
+    save();
+    return id;
+  }
+
+  function runAddCard(id, alsoCollection) {
+    const run = profile.run;
+    if (!run) return { ok: false, msg: '没有进行中的冒险' };
+    const res = bagAdd(id);
+    const g = alsoCollection === false ? null : grantCard(id);
+    if (!res.ok) {
+      return { ok: false, full: true, msg: res.msg, dup: !!(g && g.dup), refund: g ? g.refund : 0 };
+    }
+    return { ok: true, dup: !!(g && g.dup), refund: g ? g.refund : 0 };
+  }
+
+  function runSetHp(n) {
+    const run = profile.run;
+    if (!run) return 0;
+    run.hp = Math.max(1, Math.min(run.maxHp, Math.round(n)));
+    save();
+    return run.hp;
   }
 
   function runHeal(n) {
@@ -392,8 +527,9 @@ window.Store = (function () {
   function runWin(hpLeft, nodeType) {
     const run = profile.run;
     if (!run) return { finished: false };
-    run.hp = Math.min(run.maxHp, Math.max(1, hpLeft) + 4);
+    run.hp = Math.min(run.maxHp, Math.max(1, hpLeft) + D.RUN.winHeal);
     run.cleared += 1;
+    run.pending = null;
 
     if (nodeType === 'boss') {
       profile.coins += D.RUN.completeBonus + D.MAP.bossCoins;
@@ -414,6 +550,7 @@ window.Store = (function () {
 
   function runLose() {
     const run = profile.run;
+    if (run) run.pending = null;
     const cleared = run ? run.cleared : 0;
     const row = run ? run.row : 0;
     profile.bestRun = Math.max(profile.bestRun, row);
@@ -452,7 +589,9 @@ window.Store = (function () {
     openPack, grantCard,
     recordBattle, tierUnlocked,
     startRun, currentRun, currentNode, findNode, reachable, canEnter, runEnter,
-    runDeck, runAddCard, runHeal, runDamage, runAddCoins, addCoins,
+    runPending, runBeginBattle, runClearPending,
+    runDeck, runAddCard, runSetHp, runHeal, runDamage, runAddCoins, addCoins,
+    bag, bagMax, bagAdd, bagRemoveAt, bagToDeck, deckToBag, runDeckDelete, runDeckValidate, runCopies,
     runWin, runLose, abandonRun, rollRewardChoices,
     reset
   };

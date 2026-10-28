@@ -900,7 +900,21 @@ window.CT = (function () {
   const RUN = {
     completeBonus: 300,
     rewardChoices: 3,
-    title: '疯狂星期四 · 群聊大乱斗'
+    title: '疯狂星期四 · 群聊大乱斗',
+    startHp: 40,          /* 冒险起始生命 */
+    winHeal: 6,           /* 每场战斗后回复 */
+    bagMax: 16,           /* 局内背包容量 */
+    deckSize: 20,
+    healPct: 0.35,        /* 休息点回复比例 */
+    healRoomPct: 0.6      /* 回血房回复比例 */
+  };
+
+  /* 冒险商店的附加服务 */
+  const SHOP = {
+    services: [
+      { id: 'heal', emoji: '🧧', name: '群友代付', price: 80, desc: '回复 40% 最大生命', healPct: 0.4 },
+      { id: 'remove', emoji: '🗑️', name: '删掉黑历史', price: 60, desc: '从卡组里移除 1 张牌', remove: 1 }
+    ]
   };
 
   /* 杀戮尖塔式随机地图：8 行（0 起点 / 1-6 随机节点 / 7 BOSS） */
@@ -910,18 +924,18 @@ window.CT = (function () {
     slots: [16, 38, 62, 84],
     typeWeights: {
       1: { battle: 1 },
-      2: { battle: 0.7, event: 0.3 },
-      3: { battle: 0.5, elite: 0.2, shop: 0.3 },
-      4: { battle: 0.4, event: 0.35, elite: 0.25 },
-      5: { battle: 0.45, shop: 0.3, elite: 0.25 },
-      6: { rest: 0.6, elite: 0.4 }
+      2: { battle: 0.5, heal: 0.22, event: 0.28 },
+      3: { battle: 0.42, heal: 0.18, shop: 0.22, elite: 0.18 },
+      4: { battle: 0.34, event: 0.26, heal: 0.2, elite: 0.2 },
+      5: { battle: 0.38, shop: 0.24, heal: 0.2, elite: 0.18 },
+      6: { rest: 0.4, heal: 0.3, elite: 0.3 }
     },
     eliteCoins: 40,
     bossCoins: 200,
     bossId: 'kfcgod',
-    healPct: 0.3,
-    /* 肉鸽里敌人血量低于自由对战：普通 0.72、精英 0.85、BOSS 0.9 */
-    hpScale: { battle: 0.72, elite: 0.85, boss: 0.9 }
+    healPct: 0.35,
+    /* 肉鸽里敌人血量低于自由对战：普通 0.6、精英 0.72、BOSS 0.8 */
+    hpScale: { battle: 0.6, elite: 0.72, boss: 0.8 }
   };
 
   const NODE_META = {
@@ -931,6 +945,7 @@ window.CT = (function () {
     event:  { icon: '❓', name: '事件' },
     shop:   { icon: '🛒', name: '商店' },
     rest:   { icon: '💤', name: '休息' },
+    heal:   { icon: '🩺', name: '回血房' },
     boss:   { icon: '👑', name: 'BOSS' }
   };
 
@@ -1031,7 +1046,7 @@ window.CT = (function () {
 
   return {
     RARITY, HERO_DEFS, CARD_DEFS, STARTER_DECK,
-    OPPONENTS, ENEMY_DECKS, RUN, MAP, NODE_META, EVENTS, PACKS, MEME_LINES, BUBBLE_TEXTS,
+    OPPONENTS, ENEMY_DECKS, RUN, MAP, SHOP, NODE_META, EVENTS, PACKS, MEME_LINES, BUBBLE_TEXTS,
     keywordsOf
   };
 })();

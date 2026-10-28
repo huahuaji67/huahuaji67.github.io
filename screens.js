@@ -55,6 +55,7 @@ window.Screens = (function () {
 
   function closeAll() {
     if ($('#packOverlay').classList.contains('is-open')) { closePack(); return; }
+    if ($('#bagPanel').classList.contains('is-open')) { closeBagPanel(); return; }
     const modal = $('#modal');
     if (modal.classList.contains('is-open')) {
       if (modal.dataset.lock !== '1') closeModal('modal');
@@ -97,6 +98,34 @@ window.Screens = (function () {
 
     if (ev.target.closest('[data-run-start]')) { startNewRun(); return; }
 
+    const bagDrop = ev.target.closest('[data-bag-drop]');
+    if (bagDrop) {
+      ev.stopPropagation();
+      const i = Number(bagDrop.dataset.bagDrop);
+      const id = Store.bagRemoveAt(i);
+      if (id) { Sound.deny(); toast(`丢弃了「${D.CARD_DEFS[id].name}」`); refreshRunViews(); }
+      return;
+    }
+
+    const bagAdd = ev.target.closest('[data-bag-add]');
+    if (bagAdd) {
+      const r = Store.bagToDeck(Number(bagAdd.dataset.bagAdd));
+      if (r.ok) { Sound.click(); toast(r.msg); } else { Sound.deny(); toast(r.msg); }
+      refreshRunViews();
+      return;
+    }
+
+    const bagRemove = ev.target.closest('[data-bag-remove]');
+    if (bagRemove) {
+      const r = Store.deckToBag(Number(bagRemove.dataset.bagRemove));
+      if (r.ok) { Sound.click(); toast(r.msg); } else { Sound.deny(); toast(r.msg); }
+      refreshRunViews();
+      return;
+    }
+
+    if (ev.target.id === 'bagPanel') { closeBagPanel(); return; }
+    if (ev.target.id === 'bagClose') { closeBagPanel(); return; }
+
     const nodeEl = ev.target.closest('[data-node]');
     if (nodeEl) { enterMapNode(nodeEl.dataset.node); return; }
 
@@ -122,6 +151,16 @@ window.Screens = (function () {
       case 'auto-deck': autoDeck(); break;
       case 'clear-deck': deckDraft = []; Sound.click(); renderDeckScreen(); break;
       case 'reset-data': confirmReset(); break;
+      case 'run-bag': Sound.click(); openBagPanel(); break;
+      case 'resume-battle': {
+        const pend = Store.runPending();
+        if (!pend) { openRun(); break; }
+        Sound.click();
+        window.Battle.start(pend.enemyId, { run: true, nodeType: pend.nodeType });
+        if (window.App.currentScreen() === 'screen-battle') closeRunPanel();
+        break;
+      }
+      case 'run-abandon': confirmAbandon(); break;
       default: break;
     }
   }
@@ -385,11 +424,27 @@ window.Screens = (function () {
     const hpPct = Math.round((run.hp / run.maxHp) * 100);
     stats.innerHTML = `
       <div class="rs-hp"><span>❤️ ${run.hp} / ${run.maxHp}</span><i><b style="width:${hpPct}%"></b></i></div>
-      <div class="rs-meta">${run.row === 0 ? '起点' : `第 ${run.row} / ${D.MAP.rows - 1} 层`} · 牌库 ${run.deck.length} 张 · 已通过 ${run.cleared}</div>`;
+      <div class="rs-meta">${run.row === 0 ? '起点' : `第 ${run.row} / ${D.MAP.rows - 1} 层`} · 卡组 ${run.deck.length} 张 · 背包 ${run.bag.length}/${Store.bagMax()} · 已通过 ${run.cleared}${run.pending ? ' · <b class="rs-fight">⚔️ 战斗中</b>' : ''}</div>`;
 
     renderMap(run);
-    foot.innerHTML = `<div class="map-legend">
-      <span>⚔️ 战斗</span><span>💀 精英</span><span>❓ 事件</span><span>🛒 商店</span><span>💤 休息</span><span>👑 BOSS</span>
+    if (run.pending) {
+      const opp = D.OPPONENTS.find((o) => o.id === run.pending.enemyId) || {};
+      foot.innerHTML = `<div class="run-pending">
+        <span class="rp-text">⚔️ 这场战斗还没打完：<b>${opp.emoji || '⚔️'} ${opp.name || '对手'}</b></span>
+        <span class="rp-actions">
+          <button class="btn-primary small" data-act="resume-battle">继续战斗</button>
+          <button class="btn-ghost small" data-act="run-abandon">放弃冒险</button>
+        </span>
+      </div>`;
+      return;
+    }
+
+    foot.innerHTML = `<div class="run-foot-row">
+      <button class="btn-ghost small${run.bag.length ? ' is-hot' : ''}" data-act="run-bag">🎒 背包 ${run.bag.length}/${Store.bagMax()}${run.bag.length ? ' · 待装配' : ''}</button>
+      <div class="map-legend">
+        <span>⚔️ 战斗</span><span>💀 精英</span><span>❓ 事件</span><span>🛒 商店</span>
+        <span>🩺 回血房</span><span>💤 休息</span><span>👑 BOSS</span>
+      </div>
     </div>`;
   }
 
@@ -455,15 +510,67 @@ window.Screens = (function () {
     if (!node) return;
     Sound.click();
     if (node.type === 'battle' || node.type === 'elite' || node.type === 'boss') {
+      Store.runBeginBattle(node.id);
       window.Battle.start(node.enemyId, { run: true, nodeType: node.type });
       // 只有战斗成功开启后才收起地图，避免开局失败时卡在半空
       if (window.App.currentScreen() === 'screen-battle') closeRunPanel();
       return;
     }
+    if (node.type === 'heal') { resolveHeal(); return; }
     if (node.type === 'rest') { resolveRest(); return; }
     if (node.type === 'shop') { resolveShop(); return; }
     if (node.type === 'event') { resolveEvent(); return; }
     renderRun();
+  }
+
+  function confirmAbandon() {
+    openModalHtml('放弃冒险', `
+      <div class="event-box">
+        <div class="ev-face">🚪</div>
+        <div class="ev-text">放弃这次冒险？当前生命、局内背包和运行中的牌库都会清空，已经拿到的收藏不会丢。</div>
+      </div>
+      <div class="confirm-actions">
+        <button class="btn-primary" id="abandonYes">放弃冒险</button>
+        <button class="btn-ghost" id="abandonNo">再想想</button>
+      </div>
+    `, { lock: true });
+    $('#abandonYes').addEventListener('click', () => {
+      Store.abandonRun();
+      closeModal('modal');
+      Sound.deny();
+      toast('已放弃这次冒险');
+      renderRun();
+    });
+    $('#abandonNo').addEventListener('click', () => closeModal('modal'));
+  }
+
+  function resolveHeal() {
+    const run = Store.currentRun();
+    if (!run) return;
+    const heal = Math.round(run.maxHp * D.RUN.healRoomPct);
+    const missing = run.maxHp - run.hp;
+    openModalHtml('回血房', `
+      <div class="event-box">
+        <div class="ev-face">🩺</div>
+        <div class="ev-text">群友把折叠床支了起来，说今天不 V 钱了，先给你挂一瓶葡萄糖。<br>
+          回复 <b>${heal}</b> 点生命（当前 ${run.hp}/${run.maxHp}，还差 ${missing} 点满血）。</div>
+      </div>
+      <div class="confirm-actions">
+        <button class="btn-primary" id="healRoom">挂水（+${heal} 血）</button>
+        <button class="btn-ghost" id="healSkip">不挂了，赶路</button>
+      </div>
+    `, { lock: true });
+    $('#healRoom').addEventListener('click', () => {
+      const g = Store.runHeal(heal);
+      closeModal('modal');
+      toast(`回复 ${g} 点生命`);
+      Sound.heal();
+      openRun();
+    });
+    $('#healSkip').addEventListener('click', () => {
+      closeModal('modal');
+      openRun();
+    });
   }
 
   function resolveRest() {
@@ -518,8 +625,13 @@ window.Screens = (function () {
     if (e.type === 'card') {
       const n = e.value || 1;
       const picks = Store.rollRewardChoices(n);
-      picks.forEach((id) => Store.runAddCard(id));
-      msgs.push(`获得 ${picks.map((id) => D.CARD_DEFS[id].name).join('、')}`);
+      const got = [];
+      picks.forEach((id) => {
+        const r = Store.runAddCard(id);
+        if (r && r.ok) got.push(D.CARD_DEFS[id].name);
+        else { Store.addCoins(40); got.push(`${D.CARD_DEFS[id].name}（背包满，+40 币）`); }
+      });
+      msgs.push(`背包 + ${got.join('、')}`);
     }
     closeModal('modal');
     toast(msgs.length ? msgs.join(' · ') : '什么也没发生');
@@ -530,44 +642,190 @@ window.Screens = (function () {
   function resolveShop() {
     const offers = Store.rollRewardChoices(3);
     const priceOf = (id) => ({ common: 60, rare: 110, epic: 190, legendary: 320 }[Store.rarity(id)] || 60);
+    let mode = 'main';
+
+    const typeLine = (c) => (c.type === 'minion' ? `${c.atk} 攻 / ${c.hp} 血` : c.type === 'field' ? '场地 · 一次性' : c.type === 'item' ? '道具 · 一次性' : '法术');
+
     const render = () => {
+      const run = Store.currentRun();
+      if (!run) { closeModal('modal'); return; }
       const coins = Store.coins();
-      const html = offers.map((id, i) => {
-        if (!id) return '<div class="rw-item is-sold">已售出</div>';
+      const bag = Store.bag();
+      const bagFull = bag.length >= Store.bagMax();
+
+      if (mode === 'remove') {
+        const cards = run.deck.map((id, i) => {
+          const c = D.CARD_DEFS[id];
+          return `<button class="svc-card rar-${c.rarity}" data-remove="${i}">
+            <span class="bc-cost">${c.cost}</span>
+            <span class="sc-art">${c.emoji}</span>
+            <span class="sc-name">${c.name}</span>
+          </button>`;
+        }).join('');
+        $('#modalBody').innerHTML = `
+          <p class="confirm-text">选择一张要从卡组里删掉的牌（删掉的牌会<strong>进入背包</strong>，背包满了则直接消失）。</p>
+          <div class="svc-grid">${cards}</div>
+          <div class="confirm-actions"><button class="btn-ghost" id="shopBack">返回</button></div>`;
+        $$('#modalBody [data-remove]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const idx = Number(btn.dataset.remove);
+            const id = run.deck[idx];
+            if (!id) return;
+            if (coins < 60) { toast('币不够'); Sound.deny(); return; }
+            Store.runAddCoins(-60);
+            const moved = Store.deckToBag(idx);
+            if (!moved.ok) Store.runDeckDelete(idx);
+            Sound.coin();
+            toast(`删掉了「${D.CARD_DEFS[id].name}」`);
+            mode = 'main';
+            render();
+          });
+        });
+        $('#shopBack').addEventListener('click', () => { mode = 'main'; render(); });
+        return;
+      }
+
+      const cardsHtml = offers.map((id, i) => {
+        if (!id) return '<div class="shop-item is-sold">已售出</div>';
         const c = D.CARD_DEFS[id];
         const price = priceOf(id);
-        return `<button class="rw-item rar-${c.rarity}" data-buy="${i}" ${coins < price ? 'disabled' : ''}>
-          <span class="rw-rar">${D.RARITY[c.rarity].name}</span>
-          <span class="rw-art">${c.emoji}</span>
-          <span class="rw-name">${c.name}</span>
-          <span class="rw-cost">🪙 ${price}</span>
+        const can = coins >= price && !bagFull;
+        return `<button class="shop-item rar-${c.rarity}" data-buy="${i}" ${can ? '' : 'disabled'}>
+          <span class="si-top"><span class="si-rar">${D.RARITY[c.rarity].name}</span><span class="si-price">🪙 ${price}</span></span>
+          <span class="si-art">${c.emoji}</span>
+          <span class="si-name">${c.name}</span>
+          <span class="si-type">${c.cost} 费 · ${typeLine(c)}</span>
+          <span class="si-text">${c.text || ''}</span>
+          <span class="si-foot">${bagFull ? '背包已满' : (coins < price ? '币不够' : '买入 → 背包')}</span>
         </button>`;
       }).join('');
+
+      const svcHtml = D.SHOP.services.map((s) => {
+        const disabled = coins < s.price || (s.id === 'remove' && run.deck.length <= 1);
+        return `<button class="svc-item" data-svc="${s.id}" ${disabled ? 'disabled' : ''}>
+          <span class="sv-art">${s.emoji}</span>
+          <span class="sv-body">
+            <b>${s.name}</b>
+            <em>${s.desc}</em>
+          </span>
+          <span class="sv-price">🪙 ${s.price}</span>
+        </button>`;
+      }).join('');
+
       $('#modalBody').innerHTML = `
-        <div class="shop-run">${html}</div>
-        <p class="confirm-text">当前 🪙 ${coins}。买下的卡会直接加入这次冒险的牌库。</p>
+        <div class="shop-head">
+          <span>🪙 ${coins}</span>
+          <span>🎒 背包 ${bag.length}/${Store.bagMax()}</span>
+          <span>🃏 卡组 ${run.deck.length}</span>
+        </div>
+        <div class="shop-cards">${cardsHtml}</div>
+        <h4 class="shop-sub">额外服务</h4>
+        <div class="shop-services">${svcHtml}</div>
+        <p class="confirm-text">买到的卡会进入<strong>局内背包</strong>，在地图界面点「🎒 背包」就能把它们加进卡组。</p>
         <div class="confirm-actions"><button class="btn-ghost" id="shopLeave">离开</button></div>`;
+
       $$('#modalBody [data-buy]').forEach((btn) => {
         btn.addEventListener('click', () => {
           const idx = Number(btn.dataset.buy);
           const id = offers[idx];
+          if (!id) return;
           const price = priceOf(id);
-          if (!id || Store.coins() < price) { Sound.deny(); return; }
+          if (Store.coins() < price) { Sound.deny(); toast('币不够'); return; }
+          if (Store.bag().length >= Store.bagMax()) { Sound.deny(); toast('背包满了，先丢弃一张'); return; }
           Store.runAddCoins(-price);
-          Store.runAddCard(id, false);
+          const r = Store.runAddCard(id, false);
+          if (!r.ok) { Store.runAddCoins(price); Sound.deny(); toast(r.msg); return; }
           offers[idx] = null;
           Sound.coin();
-          toast(`买到「${D.CARD_DEFS[id].name}」`);
+          toast(`买到「${D.CARD_DEFS[id].name}」，已放入背包`);
           render();
         });
       });
+
+      $$('#modalBody [data-svc]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const svc = D.SHOP.services.find((x) => x.id === btn.dataset.svc);
+          if (!svc) return;
+          if (Store.coins() < svc.price) { Sound.deny(); toast('币不够'); return; }
+          if (svc.id === 'heal') {
+            Store.runAddCoins(-svc.price);
+            const g = Store.runHeal(Math.round(run.maxHp * svc.healPct));
+            Sound.heal();
+            toast(`群友代付了医药费，回复 ${g} 点生命`);
+            render();
+            return;
+          }
+          if (svc.id === 'remove') {
+            mode = 'remove';
+            render();
+          }
+        });
+      });
+
       $('#shopLeave').addEventListener('click', () => {
         closeModal('modal');
         openRun();
       });
     };
+
     openModalHtml('群友小卖部', '', { lock: true });
     render();
+  }
+
+  /* =========================================================
+     局内背包 / 卡组调整
+     ========================================================= */
+  function openBagPanel() {
+    if (!Store.currentRun()) { toast('先开始一次冒险'); return; }
+    renderBagPanel();
+    $('#bagPanel').classList.add('is-open');
+  }
+
+  function closeBagPanel() {
+    $('#bagPanel').classList.remove('is-open');
+  }
+
+  function bagTile(id, where, i) {
+    const c = D.CARD_DEFS[id];
+    const attr = where === 'deck' ? `data-bag-remove="${i}"` : `data-bag-add="${i}"`;
+    const drop = where === 'bag' ? `<span class="bag-drop" data-bag-drop="${i}" title="丢弃这张牌">✕</span>` : '';
+    const kind = c.type === 'minion' ? `${c.atk}/${c.hp}` : c.type === 'field' ? '场地' : c.type === 'item' ? '道具' : '法术';
+    return `<button class="bag-card rar-${c.rarity}${c.once ? ' is-once' : ''}" ${attr} title="${c.text}">
+      <span class="bc-cost">${c.cost}</span>
+      ${c.once ? '<span class="bc-once">一次</span>' : ''}
+      ${drop}
+      <span class="bc-art">${c.emoji}</span>
+      <span class="bc-name">${c.name}</span>
+      <span class="bc-type">${kind}</span>
+    </button>`;
+  }
+
+  function renderBagPanel() {
+    const run = Store.currentRun();
+    if (!run) { closeBagPanel(); return; }
+    const statsEl = $('#bagStats');
+    if (statsEl) {
+      statsEl.innerHTML = `<span>❤️ ${run.hp}/${run.maxHp}</span><span>🃏 卡组 ${run.deck.length}/${D.RUN.deckSize}</span><span>🎒 背包 ${run.bag.length}/${Store.bagMax()}</span>`;
+    }
+    $('#bagDeckCount').textContent = `${run.deck.length}/${D.RUN.deckSize}`;
+    $('#bagBagCount').textContent = `${run.bag.length}/${Store.bagMax()}`;
+    $('#bagDeck').innerHTML = run.deck.map((id, i) => bagTile(id, 'deck', i)).join('');
+    $('#bagBag').innerHTML = run.bag.length
+      ? run.bag.map((id, i) => bagTile(id, 'bag', i)).join('')
+      : '<div class="bag-empty">背包空空如也。<br>赢下战斗、逛商店、做事件都会往里面塞卡。</div>';
+    const validation = Store.runDeckValidate(run.deck);
+    const hint = $('#bagHint');
+    if (hint) {
+      hint.textContent = validation.ok
+        ? '点背包里的卡 → 加入卡组；点卡组里的卡 → 放回背包；背包卡右上角 ✕ 丢弃。'
+        : validation.msg;
+      hint.classList.toggle('is-warn', !validation.ok);
+    }
+  }
+
+  function refreshRunViews() {
+    renderBagPanel();
+    renderRun();
   }
 
   /* =========================================================
@@ -585,7 +843,7 @@ window.Screens = (function () {
         <span class="rw-name">${c.name}</span>
         <span class="rw-cost">${c.cost} 费</span>
         <span class="rw-text">${c.text || ''}</span>
-        <span class="rw-dup">${owned ? '重复 → 折算币' : '新卡'}</span>
+        <span class="rw-dup">${owned ? '重复 → 进背包' : '新卡 → 进背包'}</span>
       </button>`;
     }).join('');
     $('#rewardPanel').classList.add('is-open');
@@ -594,9 +852,22 @@ window.Screens = (function () {
   function pickReward(id) {
     if (!rewardIds || rewardIds.indexOf(id) < 0) return;
     const run = Store.currentRun();
-    const g = run ? (Store.runAddCard(id) || { dup: false }) : Store.grantCard(id);
+    const name = D.CARD_DEFS[id].name;
+    let msg = '';
+    if (run) {
+      const r = Store.runAddCard(id);
+      if (!r.ok) {
+        Store.addCoins(40);
+        msg = `背包已满，「${name}」折算 +40 🪙`;
+      } else {
+        msg = r.dup ? `「${name}」进了背包（重复卡，收藏折算 +${r.refund} 🪙）` : `「${name}」已放入背包`;
+      }
+    } else {
+      const g = Store.grantCard(id);
+      msg = g.dup ? `重复卡，折算 +${g.refund} 🪙` : `获得【${name}】`;
+    }
     Sound.coin();
-    toast(g.dup ? `重复卡，折算 +${g.refund} 🪙` : `获得【${D.CARD_DEFS[id].name}】`);
+    toast(msg);
     rewardIds = null;
     closeReward();
     renderMenu();
@@ -615,7 +886,7 @@ window.Screens = (function () {
     openModalHtml('玩法说明', `
       <div class="rules">
         <div class="rule"><i>⚔️</i><div><b>回合顺序</b>
-          <p>我方出牌 → 敌方出牌 → 双方随从同时进攻 → 判定死亡 → 下一回合。同线互殴，没人拦路就直接打英雄；伤害全部结算完才一起碎。</p></div></div>
+          <p>敌方部署 → 我方部署 → 开战 → 下一回合。开战时双方随从同时进攻：同线互殴，没人拦路就直接打英雄；伤害全部结算完才一起碎。</p></div></div>
         <div class="rule"><i>⚡</i><div><b>能量与抽牌</b>
           <p>每回合抽 1 张；能量回满，第 1 回合 2 点，之后每回合 +1，上限 10 点。卡牌左上角是费用。</p></div></div>
         <div class="rule"><i>🔑</i><div><b>关键词</b>
@@ -623,7 +894,9 @@ window.Screens = (function () {
         <div class="rule"><i>🗑️</i><div><b>弃牌</b>
           <p>手牌上限 10 张，超过 10 张时，结束回合前必须点手牌弃到 10 张。「断舍离」这类牌会主动弃牌换取爆发。</p></div></div>
         <div class="rule"><i>🎲</i><div><b>冒险模式</b>
-          <p>每次生成一张 8 行随机地图：战斗 / 精英 / 事件 / 商店 / 休息，最后打 BOSS。血量一路带走，赢一场三选一拿卡，牌库越滚越大。</p></div></div>
+          <p>每次生成一张 8 行随机地图：战斗 / 精英 / 事件 / 商店 / 回血房 / 休息，最后打 BOSS。血量一路带走，赢一场三选一拿卡。</p></div></div>
+        <div class="rule"><i>🎒</i><div><b>局内背包</b>
+          <p>冒险里拿到的卡（重复也算）先进背包，背包最多 ${D.RUN.bagMax} 张。在地图界面点「🎒 背包」可以把卡装进卡组、把卡组里的牌放回背包，或者丢弃；卡组上限 ${D.RUN.deckSize} 张。</p></div></div>
         <div class="rule"><i>🃏</i><div><b>卡组与收藏</b>
           <p>20 张卡组，传说最多 1 张、其他最多 2 张。场地 / 道具是一次性卡，每种最多带 1 张，整套最多 6 张。未拥有的卡可以合成，重复卡自动折算。</p></div></div>
       </div>
@@ -971,6 +1244,7 @@ window.Screens = (function () {
   return {
     init, refresh, onBattleEnd, openOpponents, openDeckScreen, openShop, renderMenu,
     openRun, closeRunPanel, openRunRewards, closeReward, renderRun, startNewRun, enterMapNode,
-    isThursday, openThursdayEgg, claimThursday, closeThursdayEgg, thuClaimed
+    isThursday, openThursdayEgg, claimThursday, closeThursdayEgg, thuClaimed,
+    openBagPanel, closeBagPanel, renderBagPanel
   };
 })();

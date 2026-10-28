@@ -136,6 +136,8 @@
   <!-- ================= 战斗 ================= -->
   <section id="screen-battle" class="screen screen-battle">
     <div class="battle-bg">
+      <div class="bg-aurora"></div>
+      <div class="bg-grid"></div>
       <div class="bg-glow"></div>
       <div class="grain"></div>
       <div class="vignette"></div>
@@ -196,6 +198,30 @@
   </div>
 
   <!-- ================= 冒险奖励 ================= -->
+  <div id="bagPanel" class="bag-panel">
+    <div class="bag-shell">
+      <header class="bag-top">
+        <div class="bag-title">
+          <span class="run-kicker">RUN LOADOUT</span>
+          <h2>局内背包</h2>
+        </div>
+        <div class="bag-stats" id="bagStats"></div>
+        <button class="icon-btn" id="bagClose">✕</button>
+      </header>
+      <div class="bag-body">
+        <section class="bag-col">
+          <h3>卡组 <em id="bagDeckCount">20/20</em></h3>
+          <div class="bag-grid" id="bagDeck"></div>
+        </section>
+        <section class="bag-col">
+          <h3>背包 <em id="bagBagCount">0/16</em></h3>
+          <div class="bag-grid" id="bagBag"></div>
+          <p class="bag-hint" id="bagHint"></p>
+        </section>
+      </div>
+    </div>
+  </div>
+
   <div id="rewardPanel" class="reward-panel">
     <div class="reward-card">
       <div class="reward-kicker">冒险奖励</div>

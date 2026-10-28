@@ -55,6 +55,7 @@ window.Battle = (function () {
     }
     const playerDeck = dedupeOnce(rawDeck);
     const startHp = run ? run.hp : D.HERO_DEFS.player.hp;
+    const startMaxHp = run ? (run.maxHp || run.hp) : D.HERO_DEFS.player.hp;
     const nodeType = (opts && opts.nodeType) || (runMode ? 'battle' : null);
     const hpScale = runMode ? ((D.MAP.hpScale && D.MAP.hpScale[nodeType]) || 1) : 1;
     const enemyDef = Object.assign({}, opp, { hp: Math.max(8, Math.round(opp.hp * hpScale)) });
@@ -64,7 +65,7 @@ window.Battle = (function () {
       busy: false, over: false, overKind: '', selected: null,
       opponent: opp, reward: 0, log: [], stats: { played: 0, dealt: 0, taken: 0, power: 0, discarded: 0 },
       runMode, nodeType, runFinished: false, discardReq: null,
-      player: createSide('player', playerDeck, null, startHp),
+      player: createSide('player', playerDeck, null, startHp, startMaxHp),
       enemy: createSide('enemy', D.ENEMY_DECKS[opp.deckId] || D.ENEMY_DECKS.noob, enemyDef)
     };
 
@@ -81,10 +82,22 @@ window.Battle = (function () {
 
     drawCards('player', 4);
     drawCards('enemy', 4);
-    beginPlayerTurn();
     log(`🍗 ${opp.name} 在群里发了一句：下次一定。`, 'muted');
-    log('💡 出牌 → 结束回合 → 对手出牌 → 双方随从对撞 → 判定死亡 → 下一回合。', 'muted');
+    log('💡 敌方部署 → 我方部署 → 开战 → 下一回合。', 'muted');
+
+    /* 敌方先部署，然后才轮到我方 */
+    state.phase = 'enemy';
+    state.phaseText = '敌方部署';
+    state.busy = true;
     render();
+    setTimeout(async () => {
+      if (!state || state.over) return;
+      await enemyActionPhase();
+      if (!state || state.over) return;
+      beginPlayerTurn();
+      state.busy = false;
+      render();
+    }, 420);
   }
 
   function createCard(defId) {
@@ -101,16 +114,18 @@ window.Battle = (function () {
     };
   }
 
-  function createSide(key, deckIds, opp, hpOverride) {
+  function createSide(key, deckIds, opp, hpOverride, maxHpOverride) {
     const hero = key === 'player'
       ? Object.assign({}, D.HERO_DEFS.player)
       : { name: opp.name, tag: opp.tag, emoji: opp.emoji, hp: opp.hp, power: opp.power };
-    hero.maxHp = hero.hp;
-    const hp = key === 'player' ? (hpOverride || hero.hp) : hero.hp;
+    hero.maxHp = Math.max(1, maxHpOverride || hero.hp);
+    const hp = key === 'player'
+      ? Math.min(hpOverride || hero.maxHp, hero.maxHp)
+      : hero.hp;
     return {
       hero, hp, energy: 0, shield: 0, fields: [],
       deck: shuffle(deckIds.map((id) => createCard(id))),
-      hand: [], board: [null, null, null, null, null], powerUsed: false
+      hand: [], played: [], board: [null, null, null, null, null], powerUsed: false
     };
   }
 
@@ -746,7 +761,17 @@ window.Battle = (function () {
   function drawCards(side, n) {
     const s = state[side];
     for (let i = 0; i < n; i++) {
-      if (!s.deck.length) { log('牌库空了，抽不到牌', 'muted'); return; }
+      if (!s.deck.length) {
+        if (s.played && s.played.length) {
+          s.deck = shuffle(s.played.map((id) => createCard(id)));
+          s.played = [];
+          log(`🔄 ${nameOf(side)} 牌库见底，把打过的牌洗了回去`, 'muted');
+          Sound.shuffle();
+        } else {
+          log(`🃏 ${nameOf(side)} 没有牌可抽了`, 'muted');
+          return;
+        }
+      }
       if (s.hand.length >= HAND_HARD) {
         log(`🖐 手牌已满（${HAND_HARD} 张），抽不到更多了`, 'muted');
         return;
@@ -803,6 +828,7 @@ window.Battle = (function () {
     if (card.type === 'minion') {
       if (lane == null || lane < 0 || s.board[lane]) return false;
       s.hand.splice(idx, 1);
+      if (!card.once) s.played.push(card.defId);
       s.energy -= card.cost;
       buffByField(side, card);
       s.board[lane] = card;
@@ -821,6 +847,7 @@ window.Battle = (function () {
 
     if (card.type === 'field') {
       s.hand.splice(idx, 1);
+      if (!card.once) s.played.push(card.defId);
       s.energy -= card.cost;
       state.stats.played++;
       log(`${card.emoji} ${nameOf(side)} 布置场地【${card.name}】`, side === 'player' ? 'player' : 'enemy');
@@ -834,6 +861,7 @@ window.Battle = (function () {
     }
 
     s.hand.splice(idx, 1);
+    if (!card.once) s.played.push(card.defId);
     s.energy -= card.cost;
     state.stats.played++;
     log(`${card.emoji} ${nameOf(side)} 使用【${card.name}】`, side === 'player' ? 'player' : 'enemy');
@@ -1239,20 +1267,20 @@ window.Battle = (function () {
 
     Sound.turn();
 
-    /* ① 敌方出牌 */
-    await enemyActionPhase();
-    if (state.over) return;
-
-    /* ② 双方随从攻击 */
+    /* ① 开战：双方随从攻击 + 判定死亡 */
     state.phase = 'combat';
-    state.phaseText = '双方随从进攻';
+    state.phaseText = '开战';
     render();
     await sleep(200);
     await combatPhase();
     if (checkOver()) return;
 
-    /* ③ 死亡判定已在 combatPhase 内完成，进入下一回合 */
+    /* ② 下一回合：敌方先部署 */
     state.turn++;
+    await enemyActionPhase();
+    if (state.over) return;
+
+    /* ③ 我方部署 */
     beginPlayerTurn();
     state.busy = false;
     Sound.turn();
@@ -1262,7 +1290,7 @@ window.Battle = (function () {
   async function enemyActionPhase() {
     const s = state.enemy;
     state.phase = 'enemy';
-    state.phaseText = '对手出牌';
+    state.phaseText = '敌方部署';
     s.energy = energyFor(state.turn);
     s.powerUsed = false;
     drawCards('enemy', 1);
@@ -1278,7 +1306,7 @@ window.Battle = (function () {
     s.energy = energyFor(state.turn);
     s.powerUsed = false;
     state.phase = 'player';
-    state.phaseText = '你的回合';
+    state.phaseText = '我方部署';
     state.selected = null;
     drawCards('player', 1);
     log(`—— 第 ${state.turn} 回合 ——`, 'turn');
@@ -1478,11 +1506,16 @@ window.Battle = (function () {
     $('#endTurnBtn').addEventListener('click', () => endTurn());
     $('#restartBtn').addEventListener('click', () => {
       if (state && state.busy && !state.over) { toast('这一回合还没结算完'); return; }
+      const wasRun = !!(state && state.runMode);
+      const hpNow = state ? state.player.hp : 0;
       Sound.click();
-      start(state.opponent.id, { run: state.runMode, nodeType: state.nodeType });
+      if (wasRun && !state.over) Store.runSetHp(hpNow);
+      start(state.opponent.id, { run: wasRun, nodeType: state.nodeType });
     });
     $('#menuBtn').addEventListener('click', () => {
       if (state && state.busy && !state.over) { toast('这一回合还没结算完'); return; }
+      /* 冒险里中途退出：把当前血量写回存档，避免退出重进等于回血 */
+      if (state && state.runMode && !state.over) Store.runSetHp(state.player.hp);
       Sound.click();
       hideResult();
       showScreen('screen-menu');

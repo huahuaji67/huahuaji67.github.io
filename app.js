@@ -73,6 +73,11 @@ window.App = (function () {
       hit() { tone({ freq: 120, type: 'sine', dur: 0.12, gain: 0.035, slideTo: 60 }); },
       heal() { tone({ freq: 520, type: 'sine', dur: 0.18, gain: 0.035, slideTo: 800 }); },
       turn() { tone({ freq: 320, type: 'triangle', dur: 0.1, gain: 0.035, slideTo: 460 }); },
+      shuffle() {
+        tone({ freq: 300, type: 'triangle', dur: 0.06, gain: 0.03 });
+        tone({ freq: 420, type: 'triangle', dur: 0.06, gain: 0.03, delay: 0.05 });
+        tone({ freq: 560, type: 'triangle', dur: 0.08, gain: 0.03, delay: 0.1 });
+      },
       coin() {
         tone({ freq: 880, type: 'triangle', dur: 0.07, gain: 0.04 });
         tone({ freq: 1320, type: 'triangle', dur: 0.09, gain: 0.035, delay: 0.06 });
