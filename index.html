@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>疯狂星期四：V我50 · 群友卡牌对决</title>
+<meta name="theme-color" content="#0a0b0d">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20100%20100'%3E%3Ctext%20y='.9em'%20font-size='88'%3E%F0%9F%8D%97%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- ================= 主菜单 ================= -->
+  <section id="screen-menu" class="screen screen-menu is-active">
+    <div class="menu-bg">
+      <div class="bg-glow"></div>
+      <div class="chat-bubbles" id="chatBg" aria-hidden="true"></div>
+      <div class="grain"></div>
+      <div class="vignette"></div>
+    </div>
+
+    <header class="menu-top">
+      <div class="brand"><i class="brand-dot"></i>V我50互助群</div>
+      <div class="menu-top-right">
+        <div class="coin-chip" title="疯狂币">🪙<b id="menuCoins">150</b></div>
+        <button class="icon-btn" data-act="sound" id="soundBtn" title="音效">🔊</button>
+      </div>
+    </header>
+
+    <main class="menu-body">
+      <div class="logo-wrap">
+        <div class="logo-kicker">KFC CRAZY THURSDAY · MEME CARD BATTLE</div>
+        <h1 class="logo">
+          <span class="logo-main">疯狂星期四</span>
+          <span class="logo-stamp">V我50</span>
+        </h1>
+        <p class="tagline" id="tagline">今天星期四，群友集体装死。打一场，谁赢谁请客。</p>
+        <div class="thu-badge" id="thuBadge" hidden>🗓 今天真的是星期四</div>
+      </div>
+
+      <nav class="menu-actions">
+        <button class="menu-btn is-primary" data-act="adventure">
+          <span class="mb-icon">🎲</span>
+          <span class="mb-text"><b id="advBtn">开始冒险</b><em id="advSub">六关连打 · 肉鸽</em></span>
+        </button>
+        <button class="menu-btn" data-act="versus">
+          <span class="mb-icon">⚔️</span>
+          <span class="mb-text"><b>自由对战</b><em>24 位群友</em></span>
+        </button>
+        <button class="menu-btn" data-act="deck">
+          <span class="mb-icon">🃏</span>
+          <span class="mb-text"><b>我的卡组</b><em>编辑 20 张</em></span>
+        </button>
+        <button class="menu-btn" data-act="shop">
+          <span class="mb-icon">🎁</span>
+          <span class="mb-text"><b>开卡包</b><em>收集新卡</em></span>
+        </button>
+        <button class="menu-btn" data-act="howto">
+          <span class="mb-icon">📖</span>
+          <span class="mb-text"><b>玩法说明</b><em>规则与技巧</em></span>
+        </button>
+      </nav>
+    </main>
+
+    <footer class="menu-foot">
+      <div class="mf-stats">
+        <span>胜场 <b id="menuWins">0</b></span>
+        <span>最高连胜 <b id="menuBest">0</b></span>
+        <span>开包 <b id="menuPacks">0</b></span>
+      </div>
+      <div class="menu-credit">作者：P.Rocket的大肥鱼　·　制作成本：约10元大白饭</div>
+    </footer>
+
+    <div class="ticker"><div class="ticker-track" id="tickerTrack"></div></div>
+  </section>
+
+  <!-- ================= 卡组 ================= -->
+  <section id="screen-deck" class="screen screen-deck">
+    <header class="sub-top">
+      <button class="icon-btn" data-act="menu" aria-label="返回">←</button>
+      <h2>我的卡组<span class="sub-hint">点卡牌加入 · 再点移出</span></h2>
+      <div class="deck-count"><b id="deckCount">20</b><span>/20</span></div>
+      <button class="btn-primary small" data-act="save-deck">保存</button>
+    </header>
+
+    <div class="deck-body">
+      <div class="deck-panel">
+        <div class="deck-slots" id="deckSlots"></div>
+        <div class="deck-stats" id="deckStats"></div>
+        <div class="card-detail" id="cardDetail"></div>
+        <div class="deck-tools">
+          <button class="btn-ghost small" data-act="auto-deck">一键推荐</button>
+          <button class="btn-ghost small" data-act="clear-deck">清空</button>
+        </div>
+      </div>
+
+      <div class="deck-panel grow">
+        <div class="filters" id="deckFilters">
+          <button class="chip is-on" data-filter="all">全部</button>
+          <button class="chip" data-filter="common">普通</button>
+          <button class="chip" data-filter="rare">稀有</button>
+          <button class="chip" data-filter="epic">史诗</button>
+          <button class="chip" data-filter="legendary">传说</button>
+          <button class="chip" data-filter="owned">已拥有</button>
+        </div>
+        <div class="collection" id="collectionGrid"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 商店 ================= -->
+  <section id="screen-shop" class="screen screen-shop">
+    <header class="sub-top">
+      <button class="icon-btn" data-act="menu" aria-label="返回">←</button>
+      <h2>开卡包</h2>
+      <div class="coin-chip">🪙<b id="shopCoins">0</b></div>
+    </header>
+
+    <div class="shop-body">
+      <div class="shop-hero">
+        <div class="shop-title">今天的运气，值多少疯狂币？</div>
+        <div class="shop-sub">重复卡自动折算疯狂币；缺的那张也可以直接合成。</div>
+        <div class="collect-head">
+          <div class="collect-bar"><i id="collectBar" style="width:0%"></i></div>
+          <div class="collect-text" id="collectText">收集进度 0 / 30</div>
+        </div>
+      </div>
+      <div class="pack-grid" id="packGrid"></div>
+      <div class="shop-actions">
+        <button class="btn-ghost" data-act="deck">去卡组里合成指定卡 →</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 战斗 ================= -->
+  <section id="screen-battle" class="screen screen-battle">
+    <div class="battle-bg">
+      <div class="bg-glow"></div>
+      <div class="grain"></div>
+      <div class="vignette"></div>
+    </div>
+
+    <header class="battle-top">
+      <div class="hero-card" id="playerHeroCard"></div>
+
+      <div class="turn-box">
+        <div class="turn-meta"><span>回合</span><b id="turnNum">1</b><em id="turnPhase">你的回合</em></div>
+        <div class="energy" id="energyBar"></div>
+        <div class="turn-actions">
+          <button id="endTurnBtn" class="btn-primary end-turn">结束回合</button>
+          <button id="logToggle" class="icon-btn log-toggle" title="战报">📋</button>
+          <button id="restartBtn" class="icon-btn" title="重开">↻</button>
+          <button id="menuBtn" class="icon-btn" title="主菜单">☰</button>
+        </div>
+      </div>
+
+      <div class="hero-card" id="enemyHeroCard"></div>
+    </header>
+
+    <main class="battle-main">
+      <div class="board-wrap">
+        <div class="board-hint" id="boardHint"></div>
+        <div class="field-bar" id="fieldBar"></div>
+        <div class="board" id="board"></div>
+      </div>
+
+      <aside class="side-panel" id="sidePanel">
+        <div class="panel-head"><span>战 报</span><button class="icon-btn panel-close" id="logClose">✕</button></div>
+        <div class="log" id="log"></div>
+      </aside>
+      <div class="log-backdrop" id="logBackdrop"></div>
+    </main>
+
+    <div class="discard-banner" id="discardBanner"></div>
+
+    <footer class="battle-bottom">
+      <div class="hand" id="hand"></div>
+    </footer>
+  </section>
+
+  <!-- ================= 冒险面板 ================= -->
+  <div id="runPanel" class="run-panel">
+    <div class="run-shell">
+      <header class="run-top">
+        <div class="run-title">
+          <span class="run-kicker">ROGUELIKE MAP</span>
+          <h2>群聊大乱斗</h2>
+        </div>
+        <div class="run-stats" id="runStats"></div>
+        <button class="icon-btn" id="runClose">✕</button>
+      </header>
+      <div class="run-map" id="runMap"></div>
+      <footer class="run-foot" id="runFoot"></footer>
+    </div>
+  </div>
+
+  <!-- ================= 冒险奖励 ================= -->
+  <div id="rewardPanel" class="reward-panel">
+    <div class="reward-card">
+      <div class="reward-kicker">冒险奖励</div>
+      <h3>选一张带走</h3>
+      <div class="reward-list" id="rewardList"></div>
+      <button class="btn-ghost small" id="rewardSkip">跳过</button>
+    </div>
+  </div>
+
+  <!-- ================= 通用弹窗 ================= -->
+  <div id="thuEgg" class="thu-egg" aria-hidden="true">
+    <div class="thu-rain" id="thuRain"></div>
+    <div class="thu-card">
+      <div class="thu-kicker">HAPPY CRAZY THURSDAY</div>
+      <div class="thu-face">🍗</div>
+      <h2>星期四快乐</h2>
+      <p class="thu-text" id="thuText"></p>
+      <div class="thu-actions">
+        <button class="btn-primary" id="thuClaim">V 我 50</button>
+        <button class="btn-ghost" id="thuClose">假装没看见</button>
+      </div>
+      <div class="thu-foot">本彩蛋只在星期四出现，且每天只能 V 一次</div>
+    </div>
+  </div>
+
+  <div id="modal" class="modal" aria-hidden="true">
+    <div class="modal-panel">
+      <header class="modal-head">
+        <h2 id="modalTitle"></h2>
+        <button class="icon-btn" id="modalClose">✕</button>
+      </header>
+      <div class="modal-body" id="modalBody"></div>
+    </div>
+  </div>
+
+  <!-- ================= 开包 ================= -->
+  <div id="packOverlay" class="pack-overlay">
+    <div class="pack-stage">
+      <div class="pack-title">盲盒开启</div>
+      <div class="pack-cards" id="packCards"></div>
+      <div class="pack-foot">
+        <span class="pack-refund" id="packRefund"></span>
+        <button class="btn-primary" id="packClose">收下</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= 结算 ================= -->
+  <div id="result" class="result">
+    <div class="result-card">
+      <div class="result-emoji" id="resultEmoji">🍗</div>
+      <h2 id="resultTitle"></h2>
+      <p id="resultDesc"></p>
+      <div class="result-reward" id="resultReward"></div>
+      <div class="result-stats" id="resultStats"></div>
+      <div class="result-actions">
+        <button class="btn-primary" id="resultAgain">再来一局</button>
+        <button class="btn-ghost" id="resultMenu">回主菜单</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+</div>
+
+<script src="data.js"></script>
+<script src="app.js"></script>
+<script src="store.js"></script>
+<script src="screens.js"></script>
+<script src="battle.js"></script>
+<script>
+  (function () {
+    function boot() {
+      Screens.init();
+      document.body.classList.toggle('is-mobile', window.innerWidth <= 820);
+      document.getElementById('modalClose').addEventListener('click', function () {
+        var m = document.getElementById('modal');
+        if (m.dataset.lock === '1') return;
+        App.closeModal('modal');
+      });
+      document.getElementById('runClose').addEventListener('click', Screens.closeRunPanel);
+      document.getElementById('rewardSkip').addEventListener('click', function () {
+        Screens.closeReward();
+        Screens.openRun();
+      });
+      if (location.hash === '#battle') Screens.openOpponents();
+    }
+    window.addEventListener('resize', function () {
+      document.body.classList.toggle('is-mobile', window.innerWidth <= 820);
+    });
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+    else boot();
+  })();
+</script>
+</body>
+</html>
